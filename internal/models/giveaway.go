@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"math/rand"
+	"strings"
 	"sync"
 	"time"
 
@@ -20,11 +21,12 @@ type Giveaway struct {
 	ChannelID    string
 	MessageID    string
 	Timer        *time.Timer
+	Winners      int
 }
 
 var (
 	Giveaways      = make(map[string]*Giveaway)
-	giveawaysMutex sync.RWMutex
+	GiveawaysMutex sync.RWMutex
 )
 
 func ParseEndTime(endStr string) (time.Time, error) {
@@ -52,7 +54,7 @@ func ParseEndTime(endStr string) (time.Time, error) {
 	return time.Time{}, fmt.Errorf("invalid format")
 }
 
-func CreateGiveawayEmbed(title string, endTime time.Time, roleID string, participants int) *discordgo.MessageEmbed {
+func CreateGiveawayEmbed(title string, endTime time.Time, roleID string, participants int, winners int) *discordgo.MessageEmbed {
 	loc, _ := time.LoadLocation("Etc/UTC")
 	roleMention := "None"
 	if roleID != "" {
@@ -61,14 +63,14 @@ func CreateGiveawayEmbed(title string, endTime time.Time, roleID string, partici
 	timestamp := fmt.Sprintf("<t:%d:R>", endTime.Unix())
 	return &discordgo.MessageEmbed{
 		Title:       title,
-		Description: fmt.Sprintf("Participants: %d\nTime Left: %s\nRole Required: %s", participants, timestamp, roleMention),
+		Description: fmt.Sprintf("Participants: %d\nWinners: %d\nTime Left: %s\nRole Required: %s", participants, winners, timestamp, roleMention),
 		Color:       0x00ff00,
 		Timestamp:   endTime.In(loc).Format(time.RFC3339),
 	}
 }
 
 func UpdateGiveawayEmbed(s *discordgo.Session, ga *Giveaway) {
-	embed := CreateGiveawayEmbed(ga.Title, ga.EndTime, ga.RoleID, len(ga.Participants))
+	embed := CreateGiveawayEmbed(ga.Title, ga.EndTime, ga.RoleID, len(ga.Participants), ga.Winners)
 	_, err := s.ChannelMessageEditEmbed(ga.ChannelID, ga.MessageID, embed)
 	if err != nil {
 		log.Println("Error updating embed:", err)
@@ -84,9 +86,9 @@ func EndGiveaway(s *discordgo.Session, ga *Giveaway) {
 		if sendErr != nil {
 			log.Println("Error sending fallback message:", sendErr)
 		}
-		giveawaysMutex.Lock()
+		GiveawaysMutex.Lock()
 		delete(Giveaways, ga.ID)
-		giveawaysMutex.Unlock()
+		GiveawaysMutex.Unlock()
 		return
 	}
 
@@ -96,11 +98,34 @@ func EndGiveaway(s *discordgo.Session, ga *Giveaway) {
 			log.Println("Error sending message:", err)
 		}
 	} else {
-		winnerIdx := rand.Intn(len(ga.Participants))
-		winnerID := ga.Participants[winnerIdx]
+		winnersCount := ga.Winners
+		if winnersCount < 1 {
+			winnersCount = 1
+		}
+		if winnersCount > len(ga.Participants) {
+			winnersCount = len(ga.Participants)
+		}
+		rand.Shuffle(len(ga.Participants), func(i, j int) {
+			ga.Participants[i], ga.Participants[j] = ga.Participants[j], ga.Participants[i]
+		})
+		winners := ga.Participants[:winnersCount]
+		// winnerMentions := make([]string, len(winners))
+		var winnerMentions []string
+		for _, uid := range winners {
+			winnerMentions = append(winnerMentions, fmt.Sprintf("<@%s>", uid))
+		}
+		pingText := strings.Join(winnerMentions, " ")
+		var mentionList string
+		if len(winnerMentions) == 1 {
+			mentionList = winnerMentions[0]
+		} else {
+			mentionList = strings.Join(winnerMentions, ", ")
+		}
+		// winnerIdx := rand.Intn(len(ga.Participants))
+		// winnerID := ga.Participants[winnerIdx]
 		embed := &discordgo.MessageEmbed{
 			Title:       "Giveaway Ended!",
-			Description: fmt.Sprintf("Winner: <@%s>", winnerID),
+			Description: fmt.Sprintf("**Winner(s):** %s", mentionList),
 			Color:       0xff0000,
 		}
 		components := []discordgo.MessageComponent{
@@ -115,7 +140,7 @@ func EndGiveaway(s *discordgo.Session, ga *Giveaway) {
 			},
 		}
 		_, err := s.ChannelMessageSendComplex(ga.ChannelID, &discordgo.MessageSend{
-			Content:    fmt.Sprintf("<@%s>", winnerID),
+			Content:    pingText,
 			Embed:      embed,
 			Components: components,
 			Reference: &discordgo.MessageReference{
@@ -159,7 +184,7 @@ func EndGiveaway(s *discordgo.Session, ga *Giveaway) {
 		}
 	}
 
-	giveawaysMutex.Lock()
+	GiveawaysMutex.Lock()
 	delete(Giveaways, ga.ID)
-	giveawaysMutex.Unlock()
+	GiveawaysMutex.Unlock()
 }

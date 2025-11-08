@@ -31,10 +31,28 @@ func handleSlashCommand(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	case "create-giveaway":
 		createGiveaway(s, i)
 	case "list-giveaways":
-		listGiveaways(s, i)
+		userID := ""
+		if len(data.Options) > 0 && data.Options[0].Name == "user" {
+			userID = data.Options[0].UserValue(nil).ID
+		}
+		listGiveaways(s, i, userID)
 	case "my-giveaways":
-		myGiveaways(s, i)
+		userID := i.Member.User.ID
+		if i.Member == nil {
+			// DM context
+			userID = i.User.ID
+		}
+		listGiveaways(s, i, userID)
 	}
+}
+
+func contains(slice []string, item string) bool {
+	for _, s := range slice {
+		if s == item {
+			return true
+		}
+	}
+	return false
 }
 
 func handleButtonClick(s *discordgo.Session, i *discordgo.InteractionCreate) {
@@ -62,13 +80,32 @@ func handleButtonClick(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	}
 }
 
+func getOption(m map[string]*discordgo.ApplicationCommandInteractionDataOption, name string) *discordgo.ApplicationCommandInteractionDataOption {
+	if opt, ok := m[name]; ok {
+		return opt
+	}
+	return nil
+}
+
 func createGiveaway(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	options := i.ApplicationCommandData().Options
-	title := options[0].StringValue()
-	endStr := options[1].StringValue()
+	optionMap := make(map[string]*discordgo.ApplicationCommandInteractionDataOption, len(options))
+	for _, opt := range options {
+		optionMap[opt.Name] = opt
+	}
 	var roleID string
-	if len(options) > 2 {
-		roleID = options[2].RoleValue(nil, "").ID
+	winners := 1 // default
+	title := getOption(optionMap, "title").StringValue()
+	endStr := getOption(optionMap, "end").StringValue()
+	if roleOpt := getOption(optionMap, "role"); roleOpt != nil {
+		roleID = roleOpt.RoleValue(nil, "").ID
+	}
+
+	if winnerOpt := getOption(optionMap, "winners"); winnerOpt != nil {
+		w := int(winnerOpt.IntValue())
+		if w > 0 {
+			winners = w
+		}
 	}
 
 	endTime, err := models.ParseEndTime(endStr)
@@ -91,7 +128,7 @@ func createGiveaway(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		},
 	})
 
-	embed := models.CreateGiveawayEmbed(title, endTime, roleID, 0)
+	embed := models.CreateGiveawayEmbed(title, endTime, roleID, 0, winners)
 	components := []discordgo.MessageComponent{
 		discordgo.ActionsRow{
 			Components: []discordgo.MessageComponent{
@@ -103,7 +140,7 @@ func createGiveaway(s *discordgo.Session, i *discordgo.InteractionCreate) {
 				discordgo.Button{
 					Label:    "Participants",
 					Style:    discordgo.SecondaryButton,
-					CustomID: "list_participants_1",
+					CustomID: "list_participants_0",
 				},
 			},
 		},
@@ -128,6 +165,7 @@ func createGiveaway(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		Participants: []string{},
 		ChannelID:    i.ChannelID,
 		MessageID:    msg.ID,
+		Winners:      winners,
 	}
 
 	duration := time.Until(endTime)
@@ -331,52 +369,74 @@ func handleReroll(s *discordgo.Session, i *discordgo.InteractionCreate) {
 
 func showParticipants(s *discordgo.Session, i *discordgo.InteractionCreate, page int, messageID string) {
 	ga, ok := models.Giveaways[messageID]
-	var participants []string
-	if ok {
-		participants = ga.Participants
-	} else {
-		participants = db.LoadParticipants(messageID)
-	}
-
-	if len(participants) == 0 {
+	if !ok {
 		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 			Type: discordgo.InteractionResponseChannelMessageWithSource,
 			Data: &discordgo.InteractionResponseData{
-				Content: "No participants.",
+				Content: "Giveaway not found.",
 				Flags:   discordgo.MessageFlagsEphemeral,
 			},
 		})
 		return
 	}
 
-	perPage := 10
-	start := (page - 1) * perPage
-	end := start + perPage
-	if end > len(participants) {
-		end = len(participants)
+	const perPage = 10
+	total := len(ga.Participants)
+	maxPage := (total + perPage - 1) / perPage
+	if page < 0 {
+		page = 0
 	}
-	list := ""
-	for _, p := range participants[start:end] {
-		list += fmt.Sprintf("<@%s>\n", p)
+	if page >= maxPage {
+		page = maxPage - 1
 	}
 
-	totalPages := (len(participants) + perPage - 1) / perPage
+	start := page * perPage
+	end := start + perPage
+	if end > total {
+		end = total
+	}
+
+	var entries []string
+	for _, uid := range ga.Participants[start:end] {
+		user, err := s.User(uid)
+		name := uid
+		if err == nil {
+			name = user.Username
+		}
+		entries = append(entries, fmt.Sprintf("<@%s> (%s)", uid, name))
+	}
+
+	description := strings.Join(entries, "\n")
+	if len(entries) == 0 {
+		description = "*No participants on this page.*"
+	}
+
+	embed := &discordgo.MessageEmbed{
+		Title:       fmt.Sprintf("Participants (%d total)", total),
+		Description: description,
+		Color:       0x00ff00,
+		Footer: &discordgo.MessageEmbedFooter{
+			Text: fmt.Sprintf("Page %d of %d", page+1, maxPage),
+		},
+	}
 
 	components := []discordgo.MessageComponent{}
-	if totalPages > 1 {
-		row := discordgo.ActionsRow{Components: []discordgo.MessageComponent{}}
-		if page > 1 {
+	if maxPage > 1 {
+		row := discordgo.ActionsRow{
+			Components: []discordgo.MessageComponent{},
+		}
+		if page > 0 {
 			row.Components = append(row.Components, discordgo.Button{
 				Label:    "Previous",
 				Style:    discordgo.SecondaryButton,
-				CustomID: fmt.Sprintf("prev_page_%d", page),
+				CustomID: fmt.Sprintf("prev_page_%d_%s", page, messageID),
 			})
 		}
-		if page < totalPages {
+		if page < maxPage-1 {
 			row.Components = append(row.Components, discordgo.Button{
 				Label:    "Next",
 				Style:    discordgo.SecondaryButton,
-				CustomID: fmt.Sprintf("next_page_%d", page),
+				CustomID: fmt.Sprintf("next_page_%d_%s", page, messageID),
 			})
 		}
 		components = append(components, row)
@@ -385,60 +445,90 @@ func showParticipants(s *discordgo.Session, i *discordgo.InteractionCreate, page
 	s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseChannelMessageWithSource,
 		Data: &discordgo.InteractionResponseData{
-			Content:    fmt.Sprintf("Participants (Page %d/%d):\n%s", page, totalPages, list),
-			Flags:      discordgo.MessageFlagsEphemeral,
+			Embeds:     []*discordgo.MessageEmbed{embed},
 			Components: components,
+			Flags:      discordgo.MessageFlagsEphemeral,
 		},
 	})
 }
 
-func listGiveaways(s *discordgo.Session, i *discordgo.InteractionCreate) {
-	if len(models.Giveaways) == 0 {
+// Prevent markdown injection in titles
+func escapeMarkdown(s string) string {
+	s = strings.ReplaceAll(s, "*", "\\*")
+	s = strings.ReplaceAll(s, "_", "\\_")
+	s = strings.ReplaceAll(s, "~", "\\~")
+	s = strings.ReplaceAll(s, "`", "\\`")
+	return s
+}
+
+func listGiveaways(s *discordgo.Session, i *discordgo.InteractionCreate, userID string) {
+	models.GiveawaysMutex.RLock()
+	defer models.GiveawaysMutex.RUnlock()
+
+	var fields []*discordgo.MessageEmbedField
+	now := time.Now()
+
+	for _, ga := range models.Giveaways {
+		if now.After(ga.EndTime) {
+			continue
+		}
+
+		if userID != "" && !contains(ga.Participants, userID) {
+			continue
+		}
+
+		// Link (https://discord.com/channels/guildID/channelID/messageID)
+		guildID := i.GuildID
+		if guildID == "" {
+			guildID = "@me" // DMs (shouldn't happen)
+		}
+		link := fmt.Sprintf("https://discord.com/channels/%s/%s/%s", guildID, ga.ChannelID, ga.MessageID)
+		titleLink := fmt.Sprintf("%s %s", escapeMarkdown(ga.Title), link)
+
+		loc, _ := time.LoadLocation("Etc/UTC")
+		timeLeft := fmt.Sprintf("<t:%d:R>", ga.EndTime.In(loc).Unix())
+
+		field := &discordgo.MessageEmbedField{
+			Name:   fmt.Sprintf("%s (ID: `%s`)", titleLink, ga.MessageID),
+			Value:  fmt.Sprintf("Time: %s", timeLeft),
+			Inline: false,
+		}
+		fields = append(fields, field)
+	}
+
+	if len(fields) == 0 {
 		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 			Type: discordgo.InteractionResponseChannelMessageWithSource,
 			Data: &discordgo.InteractionResponseData{
-				Content: "No running giveaways.",
+				Content: "No active giveaways found.",
 				Flags:   discordgo.MessageFlagsEphemeral,
 			},
 		})
 		return
 	}
 
-	list := ""
-	for _, ga := range models.Giveaways {
-		list += fmt.Sprintf("- %s (Ends: %s)\n", ga.Title, ga.EndTime.Format(time.RFC1123))
+	embed := &discordgo.MessageEmbed{
+		Title:  "Active Giveaways",
+		Color:  0x00ff00,
+		Fields: fields,
 	}
 
-	s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-		Type: discordgo.InteractionResponseChannelMessageWithSource,
-		Data: &discordgo.InteractionResponseData{
-			Content: "Running Giveaways:\n" + list,
-			Flags:   discordgo.MessageFlagsEphemeral,
-		},
-	})
-}
-
-func myGiveaways(s *discordgo.Session, i *discordgo.InteractionCreate) {
-	userID := i.Member.User.ID
-	list := ""
-	for _, ga := range models.Giveaways {
-		for _, p := range ga.Participants {
-			if p == userID {
-				list += fmt.Sprintf("- %s (Ends: %s)\n", ga.Title, ga.EndTime.Format(time.RFC1123))
-				break
-			}
+	if userID != "" {
+		targetUser, _ := s.User(userID)
+		username := "user"
+		if targetUser != nil {
+			username = targetUser.Username
 		}
-	}
-
-	if list == "" {
-		list = "You haven't entered any giveaways."
+		embed.Description = fmt.Sprintf("Giveaways entered by **%s**:", username)
+	} else {
+		embed.Description = "All running giveaways:"
 	}
 
 	s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseChannelMessageWithSource,
 		Data: &discordgo.InteractionResponseData{
-			Content: "Your Entered Giveaways:\n" + list,
-			Flags:   discordgo.MessageFlagsEphemeral,
+			Embeds: []*discordgo.MessageEmbed{embed},
+			Flags:  discordgo.MessageFlagsEphemeral,
 		},
 	})
 }

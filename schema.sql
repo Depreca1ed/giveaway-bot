@@ -5,6 +5,7 @@ CREATE TABLE IF NOT EXISTS giveaways (
     role_id TEXT,
     channel_id TEXT,
     message_id TEXT
+    winners INTEGER DEFAULT 1
 );
 
 CREATE TABLE IF NOT EXISTS participants (
@@ -12,3 +13,5 @@ CREATE TABLE IF NOT EXISTS participants (
     user_id TEXT,
     PRIMARY KEY (giveaway_id, user_id)
 );
+
+ALTER TABLE giveaways ADD COLUMN winners INTEGER DEFAULT 1;

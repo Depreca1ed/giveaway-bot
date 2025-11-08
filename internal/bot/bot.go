@@ -41,11 +41,25 @@ func GetCommands() []*discordgo.ApplicationCommand {
 					Description: "Role required to join (optional)",
 					Required:    false,
 				},
+				{
+					Type:        discordgo.ApplicationCommandOptionInteger,
+					Name:        "winners",
+					Description: "Number of winners (optional)",
+					Required:    false,
+				},
 			},
 		},
 		{
 			Name:        "list-giveaways",
 			Description: "List all running giveaways in the server",
+			Options: []*discordgo.ApplicationCommandOption{
+				{
+					Type:        discordgo.ApplicationCommandOptionUser,
+					Name:        "user",
+					Description: "See giveaways entered by this user (optional)",
+					Required:    false,
+				},
+			},
 		},
 		{
 			Name:        "my-giveaways",

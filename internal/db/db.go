@@ -45,8 +45,8 @@ func CloseDB() {
 }
 
 func SaveGiveaway(ga *models.Giveaway) {
-	_, err := DB.Exec(`INSERT INTO giveaways (id, title, end_time, role_id, channel_id, message_id) VALUES (?, ?, ?, ?, ?, ?)`,
-		ga.ID, ga.Title, ga.EndTime.Unix(), ga.RoleID, ga.ChannelID, ga.MessageID)
+	_, err := DB.Exec(`INSERT INTO giveaways (id, title, end_time, role_id, channel_id, message_id, winners) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		ga.ID, ga.Title, ga.EndTime.Unix(), ga.RoleID, ga.ChannelID, ga.MessageID, ga.Winners)
 	if err != nil {
 		log.Println("Error saving giveaway:", err)
 	}
@@ -78,7 +78,7 @@ func SaveParticipants(giveawayID string, participants []string) {
 }
 
 func LoadGiveaways() ([]*models.Giveaway, error) {
-	rows, err := DB.Query(`SELECT id, title, end_time, role_id, channel_id, message_id FROM giveaways`)
+	rows, err := DB.Query(`SELECT id, title, end_time, role_id, channel_id, message_id, winners FROM giveaways`)
 	if err != nil {
 		log.Println("Error querying giveaways:", err)
 		return nil, err
@@ -89,7 +89,8 @@ func LoadGiveaways() ([]*models.Giveaway, error) {
 	for rows.Next() {
 		var id, title, roleID, channelID, messageID string
 		var endUnix int64
-		err = rows.Scan(&id, &title, &endUnix, &roleID, &channelID, &messageID)
+		var winners int
+		err = rows.Scan(&id, &title, &endUnix, &roleID, &channelID, &messageID, &winners)
 		if err != nil {
 			log.Println("Error scanning giveaway:", err)
 			continue
@@ -101,6 +102,7 @@ func LoadGiveaways() ([]*models.Giveaway, error) {
 			RoleID:       roleID,
 			ChannelID:    channelID,
 			MessageID:    messageID,
+			Winners:      winners,
 			Participants: LoadParticipants(id),
 		}
 		giveaways = append(giveaways, ga)
