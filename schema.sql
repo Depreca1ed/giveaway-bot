@@ -13,5 +13,3 @@ CREATE TABLE IF NOT EXISTS participants (
     user_id TEXT,
     PRIMARY KEY (giveaway_id, user_id)
 );
-
-ALTER TABLE giveaways ADD COLUMN winners INTEGER DEFAULT 1;

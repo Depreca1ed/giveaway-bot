@@ -32,8 +32,11 @@ func main() {
 	log.Println("Successfully embedded schema.sql, size:", len(schemaContent), "bytes")
 
 	dbPath := "giveaway.db"
-	if err = os.WriteFile(dbPath, nil, 0644); err != nil {
-		log.Fatalf("Failed to create DB file: %v", err)
+	if _, err := os.ReadFile(dbPath); err != nil {
+		log.Printf("File doesn't exist, creating...")
+		if err = os.WriteFile(dbPath, nil, 0644); err != nil {
+			log.Fatalf("Failed to create DB file: %v", err)
+		}
 	}
 	err = db.InitDB(dbPath, schema)
 	if err != nil {

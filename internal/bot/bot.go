@@ -81,6 +81,24 @@ func GetCommands() []*discordgo.ApplicationCommand {
 			Name:        "leave-all-giveaways",
 			Description: "Leave all giveaways you have entered",
 		},
+		{
+			Name:        "remove",
+			Description: "Remove a user from a giveaway (Admin/Mod only)",
+			Options: []*discordgo.ApplicationCommandOption{
+				{
+					Type:        discordgo.ApplicationCommandOptionUser,
+					Name:        "user",
+					Description: "User to remove",
+					Required:    true,
+				},
+				{
+					Type:        discordgo.ApplicationCommandOptionString,
+					Name:        "id",
+					Description: "Giveaway ID (from /list-giveaways)",
+					Required:    true,
+				},
+			},
+		},
 	}
 }
 

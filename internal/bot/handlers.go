@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"math/rand"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -169,12 +170,89 @@ func handleSlashCommand(s *discordgo.Session, i *discordgo.InteractionCreate) {
 				Flags:  discordgo.MessageFlagsEphemeral,
 			},
 		})
+	case "remove":
+		if !hasPermission(s, i) {
+			s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+				Type: discordgo.InteractionResponseChannelMessageWithSource,
+				Data: &discordgo.InteractionResponseData{
+					Content: "You do not have permission to use this command.",
+					Flags:   discordgo.MessageFlagsEphemeral,
+				},
+			})
+			return
+		}
+
+		targetUser := data.Options[0].UserValue(nil)
+		giveawayID := data.Options[1].StringValue()
+		actorID := i.Member.User.ID
+
+		models.GiveawaysMutex.Lock()
+		ga, exists := models.Giveaways[giveawayID]
+		if !exists {
+			models.GiveawaysMutex.Unlock()
+			s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+				Type: discordgo.InteractionResponseChannelMessageWithSource,
+				Data: &discordgo.InteractionResponseData{
+					Content: "Giveaway not found or already ended.",
+					Flags:   discordgo.MessageFlagsEphemeral,
+				},
+			})
+			return
+		}
+
+		removed := false
+		for idx, p := range ga.Participants {
+			if p == targetUser.ID {
+				ga.Participants = append(ga.Participants[:idx], ga.Participants[idx+1:]...)
+				removed = true
+				break
+			}
+		}
+
+		if !removed {
+			models.GiveawaysMutex.Unlock()
+			s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+				Type: discordgo.InteractionResponseChannelMessageWithSource,
+				Data: &discordgo.InteractionResponseData{
+					Content: fmt.Sprintf("<@%s> is not in this giveaway.", targetUser.ID),
+					Flags:   discordgo.MessageFlagsEphemeral,
+				},
+			})
+			return
+		}
+
+		// Update embed + DB
+		models.UpdateGiveawayEmbed(s, ga)
+		db.SaveParticipants(ga.ID, ga.Participants)
+		models.GiveawaysMutex.Unlock()
+
+		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+			Type: discordgo.InteractionResponseChannelMessageWithSource,
+			Data: &discordgo.InteractionResponseData{
+				Content: fmt.Sprintf(
+					"<@%s> has been removed from giveaway **%s** by <@%s>.",
+					targetUser.ID, escapeMarkdown(ga.Title), actorID,
+				),
+				Flags: discordgo.MessageFlagsEphemeral,
+			},
+		})
+
 	}
 }
 
-func contains(slice []string, item string) bool {
-	for _, s := range slice {
-		if s == item {
+func hasPermission(s *discordgo.Session, i *discordgo.InteractionCreate) bool {
+	member := i.Member
+	if member == nil {
+		return false
+	}
+
+	if member.Permissions&discordgo.PermissionAdministrator != 0 {
+		return true
+	}
+
+	allowedRoles := []string{"1348095555594879026", "1172677966912815174", "1436059069424336958"}
+	for _, role := range member.Roles {
+		if slices.Contains(allowedRoles, role) {
 			return true
 		}
 	}
@@ -599,7 +677,7 @@ func listGiveaways(s *discordgo.Session, i *discordgo.InteractionCreate, userID 
 			continue
 		}
 
-		if userID != "" && !contains(ga.Participants, userID) {
+		if userID != "" && !slices.Contains(ga.Participants, userID) {
 			continue
 		}
 
