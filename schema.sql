@@ -4,7 +4,7 @@ CREATE TABLE IF NOT EXISTS giveaways (
     end_time INTEGER,
     role_id TEXT,
     channel_id TEXT,
-    message_id TEXT
+    message_id TEXT,
     winners INTEGER DEFAULT 1
 );
 
