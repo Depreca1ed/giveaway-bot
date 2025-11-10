@@ -86,7 +86,7 @@ func handleSlashCommand(s *discordgo.Session, i *discordgo.InteractionCreate) {
 
 		// Update embed + DB
 		models.UpdateGiveawayEmbed(s, ga)
-		db.SaveParticipants(ga.ID, ga.Participants)
+		db.SaveParticipants(ga.ID, ga.GuildID, ga.Participants)
 		models.GiveawaysMutex.Unlock()
 
 		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
@@ -105,6 +105,9 @@ func handleSlashCommand(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		var leftTitles []string
 		var fields []*discordgo.MessageEmbedField
 		for _, ga := range models.Giveaways {
+			if ga.GuildID != i.GuildID {
+				continue
+			}
 			if time.Now().After(ga.EndTime) {
 				continue
 			}
@@ -122,7 +125,7 @@ func handleSlashCommand(s *discordgo.Session, i *discordgo.InteractionCreate) {
 				leftTitles = append(leftTitles, escapeMarkdown(ga.Title))
 
 				models.UpdateGiveawayEmbed(s, ga)
-				db.SaveParticipants(ga.ID, ga.Participants)
+				db.SaveParticipants(ga.ID, ga.GuildID, ga.Participants)
 			}
 			guildID := i.GuildID
 			if guildID == "" {
@@ -188,7 +191,7 @@ func handleSlashCommand(s *discordgo.Session, i *discordgo.InteractionCreate) {
 
 		models.GiveawaysMutex.Lock()
 		ga, exists := models.Giveaways[giveawayID]
-		if !exists {
+		if !exists || ga.GuildID != i.GuildID {
 			models.GiveawaysMutex.Unlock()
 			s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 				Type: discordgo.InteractionResponseChannelMessageWithSource,
@@ -223,7 +226,7 @@ func handleSlashCommand(s *discordgo.Session, i *discordgo.InteractionCreate) {
 
 		// Update embed + DB
 		models.UpdateGiveawayEmbed(s, ga)
-		db.SaveParticipants(ga.ID, ga.Participants)
+		db.SaveParticipants(ga.ID, ga.GuildID, ga.Participants)
 		models.GiveawaysMutex.Unlock()
 
 		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
@@ -373,6 +376,7 @@ func createGiveaway(s *discordgo.Session, i *discordgo.InteractionCreate) {
 
 	ga := &models.Giveaway{
 		ID:           msg.ID,
+		GuildID:      i.GuildID,
 		Title:        title,
 		EndTime:      endTime,
 		RoleID:       roleID,
@@ -460,7 +464,7 @@ func handleEnterGiveaway(s *discordgo.Session, i *discordgo.InteractionCreate, u
 	} else {
 		ga.Participants = append(ga.Participants, userID)
 		models.UpdateGiveawayEmbed(s, ga)
-		db.SaveParticipants(ga.ID, ga.Participants)
+		db.SaveParticipants(ga.ID, ga.GuildID, ga.Participants)
 
 		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 			Type: discordgo.InteractionResponseChannelMessageWithSource,
@@ -528,7 +532,7 @@ func handleModalSubmit(s *discordgo.Session, i *discordgo.InteractionCreate) {
 			}
 		}
 		models.UpdateGiveawayEmbed(s, ga)
-		db.SaveParticipants(ga.ID, ga.Participants)
+		db.SaveParticipants(ga.ID, ga.GuildID, ga.Participants)
 
 		err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 			Type: discordgo.InteractionResponseChannelMessageWithSource,
@@ -550,7 +554,7 @@ func handleReroll(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	if ok {
 		participants = ga.Participants
 	} else {
-		participants = db.LoadParticipants(originalMsgID)
+		participants = db.LoadParticipants(originalMsgID, ga.GuildID)
 	}
 
 	if len(participants) == 0 {
@@ -683,6 +687,9 @@ func listGiveaways(s *discordgo.Session, i *discordgo.InteractionCreate, userID 
 	now := time.Now()
 
 	for _, ga := range models.Giveaways {
+		if ga.GuildID != i.GuildID {
+			continue
+		}
 		if now.After(ga.EndTime) {
 			continue
 		}

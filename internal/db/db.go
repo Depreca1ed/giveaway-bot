@@ -45,14 +45,14 @@ func CloseDB() {
 }
 
 func SaveGiveaway(ga *models.Giveaway) {
-	_, err := DB.Exec(`INSERT INTO giveaways (id, title, end_time, role_id, channel_id, message_id, winners) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		ga.ID, ga.Title, ga.EndTime.Unix(), ga.RoleID, ga.ChannelID, ga.MessageID, ga.Winners)
+	_, err := DB.Exec(`INSERT INTO giveaways (id, guild_id, title, end_time, role_id, channel_id, message_id, winners) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		ga.ID, ga.GuildID, ga.Title, ga.EndTime.Unix(), ga.RoleID, ga.ChannelID, ga.MessageID, ga.Winners)
 	if err != nil {
 		log.Println("Error saving giveaway:", err)
 	}
 }
 
-func SaveParticipants(giveawayID string, participants []string) {
+func SaveParticipants(giveawayID string, guildID string, participants []string) {
 	tx, err := DB.Begin()
 	if err != nil {
 		log.Println("Error starting transaction:", err)
@@ -65,7 +65,7 @@ func SaveParticipants(giveawayID string, participants []string) {
 		return
 	}
 	for _, p := range participants {
-		_, err = tx.Exec(`INSERT INTO participants (giveaway_id, user_id) VALUES (?, ?)`, giveawayID, p)
+		_, err = tx.Exec(`INSERT INTO participants (giveaway_id, guild_id, user_id) VALUES (?, ?, ?)`, giveawayID, guildID, p)
 		if err != nil {
 			tx.Rollback()
 			log.Println("Error saving participant:", err)
@@ -78,7 +78,7 @@ func SaveParticipants(giveawayID string, participants []string) {
 }
 
 func LoadGiveaways() ([]*models.Giveaway, error) {
-	rows, err := DB.Query(`SELECT id, title, end_time, role_id, channel_id, message_id, winners FROM giveaways`)
+	rows, err := DB.Query(`SELECT id, guild_id, title, end_time, role_id, channel_id, message_id, winners FROM giveaways`)
 	if err != nil {
 		log.Println("Error querying giveaways:", err)
 		return nil, err
@@ -87,31 +87,32 @@ func LoadGiveaways() ([]*models.Giveaway, error) {
 
 	var giveaways []*models.Giveaway
 	for rows.Next() {
-		var id, title, roleID, channelID, messageID string
+		var id, guildID, title, roleID, channelID, messageID string
 		var endUnix int64
 		var winners int
-		err = rows.Scan(&id, &title, &endUnix, &roleID, &channelID, &messageID, &winners)
+		err = rows.Scan(&id, &guildID, &title, &endUnix, &roleID, &channelID, &messageID, &winners)
 		if err != nil {
 			log.Println("Error scanning giveaway:", err)
 			continue
 		}
 		ga := &models.Giveaway{
 			ID:           id,
+			GuildID:      guildID,
 			Title:        title,
 			EndTime:      time.Unix(endUnix, 0),
 			RoleID:       roleID,
 			ChannelID:    channelID,
 			MessageID:    messageID,
 			Winners:      winners,
-			Participants: LoadParticipants(id),
+			Participants: LoadParticipants(id, guildID),
 		}
 		giveaways = append(giveaways, ga)
 	}
 	return giveaways, nil
 }
 
-func LoadParticipants(giveawayID string) []string {
-	rows, err := DB.Query(`SELECT user_id FROM participants WHERE giveaway_id = ?`, giveawayID)
+func LoadParticipants(giveawayID string, guildID string) []string {
+	rows, err := DB.Query(`SELECT user_id FROM participants WHERE giveaway_id = ? AND guild_id = ?`, giveawayID, guildID)
 	if err != nil {
 		log.Println("Error querying participants:", err)
 		return nil
@@ -131,12 +132,12 @@ func LoadParticipants(giveawayID string) []string {
 	return participants
 }
 
-func DeleteGiveaway(id string) {
-	_, err := DB.Exec(`DELETE FROM giveaways WHERE id = ?`, id)
+func DeleteGiveaway(id string, guildID string) {
+	_, err := DB.Exec(`DELETE FROM giveaways WHERE id = ? AND guild_id = ?`, id, guildID)
 	if err != nil {
 		log.Println("Error deleting giveaway:", err)
 	}
-	_, err = DB.Exec(`DELETE FROM participants WHERE giveaway_id = ?`, id)
+	_, err = DB.Exec(`DELETE FROM participants WHERE giveaway_id = ? AND guild_id = ?`, id, guildID)
 	if err != nil {
 		log.Println("Error deleting participants:", err)
 	}

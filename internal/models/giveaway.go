@@ -14,6 +14,7 @@ import (
 
 type Giveaway struct {
 	ID           string
+	GuildID      string
 	Title        string
 	EndTime      time.Time
 	RoleID       string

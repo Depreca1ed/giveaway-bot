@@ -61,13 +61,13 @@ func main() {
 	}
 	for _, ga := range giveaways {
 		if time.Now().After(ga.EndTime) {
-			db.DeleteGiveaway(ga.ID)
+			db.DeleteGiveaway(ga.ID, ga.GuildID)
 			continue
 		}
 		duration := time.Until(ga.EndTime)
 		ga.Timer = time.AfterFunc(duration, func() {
 			models.EndGiveaway(dg, ga)
-			db.DeleteGiveaway(ga.ID)
+			db.DeleteGiveaway(ga.ID, ga.GuildID)
 		})
 		models.Giveaways[ga.ID] = ga
 	}
