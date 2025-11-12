@@ -616,7 +616,7 @@ func handleReroll(s *discordgo.Session, i *discordgo.InteractionCreate, giveaway
 	}
 
 	embed := &discordgo.MessageEmbed{
-		Title:       "New Winner",
+		Title:       fmt.Sprintf("New Winner of Giveaway: %s", ga.Title),
 		Description: fmt.Sprintf("<@%s>", winnerID),
 		Color:       0x00ff00,
 	}
