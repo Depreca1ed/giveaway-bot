@@ -63,11 +63,26 @@ func CreateGiveawayEmbed(title string, endTime time.Time, roleID string, partici
 		roleMention = "<@&" + roleID + ">"
 	}
 	timestamp := fmt.Sprintf("<t:%d:R>", endTime.Unix())
+
+	description := fmt.Sprintf(
+		"Click 🎉 button to enter!\n"+
+			"Participants: **%d**\n"+
+			"Winners: **%d**\n"+
+			"Ends: %s\n\n",
+		participants,
+		winners,
+		timestamp)
+
+	if roleMention != "None" {
+		description += fmt.Sprintf("Role Required: **%s**", roleMention)
+	}
+
 	return &discordgo.MessageEmbed{
 		Title:       title,
-		Description: fmt.Sprintf("Participants: %d\nWinners: %d\nTime Left: %s\nRole Required: %s", participants, winners, timestamp, roleMention),
+		Description: description,
 		Color:       0x00ff00,
 		Timestamp:   endTime.In(loc).Format(time.RFC3339),
+		Footer:      &discordgo.MessageEmbedFooter{Text: "Ends at"},
 	}
 }
 
@@ -95,10 +110,62 @@ func EndGiveaway(s *discordgo.Session, ga *Giveaway) {
 	}
 
 	if len(ga.Participants) == 0 {
-		_, err := s.ChannelMessageSend(ga.ChannelID, "Giveaway ended with no participants.")
+		_, err := s.ChannelMessageSendComplex(ga.ChannelID,
+			&discordgo.MessageSend{
+				Embed: &discordgo.MessageEmbed{
+					Title: fmt.Sprintf("No one entered the giveaway for %s!", ga.Title),
+					Color: 0xff0000,
+				},
+				Components: []discordgo.MessageComponent{
+					discordgo.ActionsRow{
+						Components: []discordgo.MessageComponent{
+							discordgo.Button{
+								Label: "Original message",
+								Style: discordgo.LinkButton,
+								URL:   fmt.Sprintf("https://discord.com/channels/%v/%v/%v", ga.GuildID, ga.ChannelID, ga.MessageID),
+							},
+						},
+					},
+				}})
+
 		if err != nil {
 			log.Println("Error sending message:", err)
 		}
+
+		embed := CreateGiveawayEmbed(ga.Title, ga.EndTime, ga.RoleID, len(ga.Participants), ga.Winners)
+		embed.Color = 0xff0000
+		embed.Description = "**No one entered the giveaway!**"
+
+		components := []discordgo.MessageComponent{
+			discordgo.ActionsRow{
+				Components: []discordgo.MessageComponent{
+					discordgo.Button{
+						Emoji:    &discordgo.ComponentEmoji{Name: "🎉"},
+						Style:    discordgo.PrimaryButton,
+						CustomID: "enter_giveaway",
+						Disabled: true,
+					},
+					discordgo.Button{
+						Label:    "Participants",
+						Style:    discordgo.SecondaryButton,
+						CustomID: "list_participants_1",
+						Disabled: true,
+					},
+				},
+			},
+		}
+
+		messageEdit := &discordgo.MessageEdit{
+			ID:         ga.MessageID,
+			Channel:    ga.ChannelID,
+			Embed:      embed,
+			Components: &components,
+		}
+		_, err = s.ChannelMessageEditComplex(messageEdit)
+		if err != nil {
+			log.Printf("Error updating message components for message %s in channel %s: %v", ga.MessageID, ga.ChannelID, err)
+		}
+
 	} else {
 		winnersCount := ga.Winners
 		if winnersCount < 1 {
@@ -120,23 +187,29 @@ func EndGiveaway(s *discordgo.Session, ga *Giveaway) {
 		pingText := strings.Join(winnerMentions, " ")
 		var mentionList string
 		embed := &discordgo.MessageEmbed{
-			Title: fmt.Sprintf("Giveaway %s Ended!", ga.Title),
-			Color: 0xff0000,
+			Title: fmt.Sprintf("Giveaway for %s has ended!", ga.Title),
+			Color: 0xffd700,
 		}
 		if len(winnerMentions) == 1 {
 			mentionList = winnerMentions[0]
-			embed.Description = fmt.Sprintf("**Winner:** %s", mentionList)
+			embed.Description = fmt.Sprintf("%s has won the giveaway for **%s**", mentionList, ga.Title)
 		} else {
 			mentionList = strings.Join(winnerMentions, ", ")
-			embed.Description = fmt.Sprintf("**Winners:** %s", mentionList)
+			embed.Description = fmt.Sprintf("%s have won the giveaway for **%s**", mentionList, ga.Title)
 		}
 		components := []discordgo.MessageComponent{
 			discordgo.ActionsRow{
 				Components: []discordgo.MessageComponent{
 					discordgo.Button{
+						Label: "Original message",
+						Style: discordgo.LinkButton,
+						URL:   fmt.Sprintf("https://discord.com/channels/%v/%v/%v", ga.GuildID, ga.ChannelID, ga.MessageID),
+					},
+					discordgo.Button{
 						Label:    "Reroll",
 						Style:    discordgo.PrimaryButton,
 						CustomID: "reroll_" + ga.ID,
+						Disabled: bool(len(ga.Participants) == 1),
 					},
 				},
 			},
