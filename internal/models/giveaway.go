@@ -209,7 +209,7 @@ func EndGiveaway(s *discordgo.Session, ga *Giveaway) {
 						Label:    "Reroll",
 						Style:    discordgo.PrimaryButton,
 						CustomID: "reroll_" + ga.ID,
-						Disabled: bool(len(ga.Participants) == 1),
+						Disabled: bool(len(ga.Participants) <= ga.Winners),
 					},
 				},
 			},
